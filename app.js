@@ -44,22 +44,22 @@ function initUserData(user) {
 // ============================================
 function dateToStr(date) {
     const d = new Date(date);
-    return d.toISOString().split('T')[0];
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+function parseLocalDate(str) {
+    const [y, m, d] = str.split('-').map(Number);
+    return new Date(y, m - 1, d);
 }
 
 function getDayNumber(startDate) {
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
+    const start = parseLocalDate(startDate);
     const now = new Date();
     now.setHours(0, 0, 0, 0);
-    const diff = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+    const diff = Math.round((now - start) / (1000 * 60 * 60 * 24));
     return diff + 1;
-}
-
-function getDateForDay(startDate, dayNum) {
-    const d = new Date(startDate);
-    d.setDate(d.getDate() + dayNum - 1);
-    return d;
 }
 
 // ============================================
@@ -73,10 +73,11 @@ const dashboardScreen = document.getElementById('dashboard-screen');
 loginForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const username = document.getElementById('username').value.trim().toLowerCase();
-    const password = document.getElementById('password').value;
+    const password = document.getElementById('password').value.trim();
 
     if (USERS[username] && USERS[username].password === password) {
         currentUser = username;
+        sessionStorage.setItem('75hard_session', currentUser);
         loginError.textContent = '';
         loginScreen.classList.remove('active');
         dashboardScreen.classList.add('active');
@@ -89,6 +90,7 @@ loginForm.addEventListener('submit', (e) => {
 
 document.getElementById('btn-logout').addEventListener('click', () => {
     currentUser = null;
+    sessionStorage.removeItem('75hard_session');
     dashboardScreen.classList.remove('active');
     loginScreen.classList.add('active');
     document.getElementById('username').value = '';
@@ -170,7 +172,7 @@ function showTracker(data) {
     const taskCards = document.querySelectorAll('.task-card');
     taskCards.forEach(card => {
         card.onclick = (e) => {
-            if (e.target.tagName === 'INPUT') return;
+            if (e.target.closest('.toggle')) return;
             const cb = card.querySelector('input[type="checkbox"]');
             cb.checked = !cb.checked;
             cb.dispatchEvent(new Event('change'));
@@ -416,15 +418,3 @@ function renderPartnerProgress() {
         initDashboard();
     }
 })();
-
-// Save session on login
-const origSubmit = loginForm.onsubmit;
-loginForm.addEventListener('submit', () => {
-    if (currentUser) {
-        sessionStorage.setItem('75hard_session', currentUser);
-    }
-});
-
-document.getElementById('btn-logout').addEventListener('click', () => {
-    sessionStorage.removeItem('75hard_session');
-});
