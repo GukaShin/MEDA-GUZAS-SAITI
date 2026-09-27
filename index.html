@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>75 HARD — Challenge Tracker</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- LOGIN SCREEN -->
+    <div id="login-screen" class="screen active">
+        <div class="login-container">
+            <div class="login-brand">
+                <div class="brand-number">75</div>
+                <div class="brand-text">HARD</div>
+                <div class="brand-sub">CHALLENGE TRACKER</div>
+            </div>
+            <form id="login-form" class="login-form">
+                <div class="input-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" placeholder="Enter username" autocomplete="off" required>
+                </div>
+                <div class="input-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" placeholder="Enter password" required>
+                </div>
+                <button type="submit" class="btn-login">Sign In</button>
+                <p id="login-error" class="login-error"></p>
+            </form>
+        </div>
+    </div>
+
+    <!-- DASHBOARD SCREEN -->
+    <div id="dashboard-screen" class="screen">
+        <!-- Top Bar -->
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <span class="logo-small">75 HARD</span>
+            </div>
+            <div class="top-bar-center">
+                <span id="greeting" class="greeting"></span>
+            </div>
+            <div class="top-bar-right">
+                <span id="streak-badge" class="streak-badge" title="Current streak">🔥 0</span>
+                <button id="btn-logout" class="btn-logout">Sign Out</button>
+            </div>
+        </header>
+
+        <!-- Hero Stats -->
+        <section class="hero-stats">
+            <div class="stat-card glass">
+                <div class="stat-number" id="stat-day">0</div>
+                <div class="stat-label">Current Day</div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-number" id="stat-completed">0</div>
+                <div class="stat-label">Days Completed</div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-number" id="stat-percent">0%</div>
+                <div class="stat-label">Progress</div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-number" id="stat-remaining">75</div>
+                <div class="stat-label">Days Left</div>
+            </div>
+        </section>
+
+        <!-- Progress Bar -->
+        <section class="progress-section">
+            <div class="progress-bar-container">
+                <div class="progress-bar-fill" id="progress-bar" style="width: 0%"></div>
+            </div>
+            <div class="progress-labels">
+                <span>Day 1</span>
+                <span>Day 25</span>
+                <span>Day 50</span>
+                <span>Day 75</span>
+            </div>
+        </section>
+
+        <!-- Start Date -->
+        <section class="start-date-section" id="start-date-section">
+            <div class="start-date-card glass">
+                <h3>Set Your Start Date</h3>
+                <p>Pick the day you begin (or began) the challenge</p>
+                <input type="date" id="start-date-input" class="date-input">
+                <button id="btn-set-date" class="btn-primary">Start Challenge</button>
+            </div>
+        </section>
+
+        <!-- Today's Checklist -->
+        <section class="today-section" id="today-section" style="display:none;">
+            <h2 class="section-title">Today's Tasks — <span id="today-label">Day 1</span></h2>
+            <div class="today-grid">
+                <div class="task-card glass" data-task="diet">
+                    <div class="task-icon">🥗</div>
+                    <div class="task-info">
+                        <h3>Diet</h3>
+                        <p>Follow your diet. No cheat meals, no alcohol.</p>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" data-task="diet">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="task-card glass" data-task="water">
+                    <div class="task-icon">💧</div>
+                    <div class="task-info">
+                        <h3>Water</h3>
+                        <p>Drink 1 gallon (3.8L) of water.</p>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" data-task="water">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="task-card glass" data-task="workout">
+                    <div class="task-icon">💪</div>
+                    <div class="task-info">
+                        <h3>Workout</h3>
+                        <p>2 × 45-min workouts. One must be outside.</p>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" data-task="workout">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="task-card glass" data-task="book">
+                    <div class="task-icon">📖</div>
+                    <div class="task-info">
+                        <h3>Reading</h3>
+                        <p>Read 10 pages of a non-fiction book.</p>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" data-task="book">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="task-card glass" data-task="pic">
+                    <div class="task-icon">📸</div>
+                    <div class="task-info">
+                        <h3>Progress Pic</h3>
+                        <p>Take a progress photo.</p>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" data-task="pic">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+        </section>
+
+        <!-- Calendar Grid -->
+        <section class="calendar-section" id="calendar-section" style="display:none;">
+            <h2 class="section-title">75-Day Overview</h2>
+            <div class="calendar-legend">
+                <span class="legend-item"><span class="legend-dot complete"></span> All Done</span>
+                <span class="legend-item"><span class="legend-dot partial"></span> Partial</span>
+                <span class="legend-item"><span class="legend-dot empty"></span> Not Done</span>
+                <span class="legend-item"><span class="legend-dot future"></span> Upcoming</span>
+            </div>
+            <div class="calendar-grid" id="calendar-grid"></div>
+        </section>
+
+        <!-- Rules -->
+        <section class="rules-section" id="rules-section" style="display:none;">
+            <h2 class="section-title">The Rules</h2>
+            <div class="rules-grid">
+                <div class="rule-card glass">
+                    <span class="rule-icon">🥗</span>
+                    <p>Follow a diet. No cheat meals and no alcohol.</p>
+                </div>
+                <div class="rule-card glass">
+                    <span class="rule-icon">💧</span>
+                    <p>Drink 1 gallon of water every day.</p>
+                </div>
+                <div class="rule-card glass">
+                    <span class="rule-icon">💪</span>
+                    <p>2 × 45 min workouts. One of them has to be outside.</p>
+                </div>
+                <div class="rule-card glass">
+                    <span class="rule-icon">📖</span>
+                    <p>Read 10 pages of a non-fiction book.</p>
+                </div>
+                <div class="rule-card glass">
+                    <span class="rule-icon">📸</span>
+                    <p>Take a progress pic every day.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Partner Progress -->
+        <section class="partner-section" id="partner-section" style="display:none;">
+            <h2 class="section-title">Partner's Progress</h2>
+            <div class="partner-stats" id="partner-stats"></div>
+        </section>
+
+        <footer class="footer">
+            <p>75 HARD — Built with discipline 💎</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
