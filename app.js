@@ -8,42 +8,46 @@ const USERS = {
 };
 
 const TASKS = ['diet', 'water', 'workout', 'book', 'pic'];
+const TASK_LABELS = { diet: 'Diet', water: 'Water', workout: 'Workout', book: 'Reading', pic: 'Progress Pic' };
+const TOTAL_DAYS = 75;
+const STORAGE_PREFIX = '75hard_v2_';
+const SESSION_KEY = `${STORAGE_PREFIX}session`;
 
 let currentUser = null;
+let selectedDay = null;
+
+const $ = (id) => document.getElementById(id);
 
 // ============================================
-// STORAGE HELPERS
+// STORAGE
 // ============================================
-function getStorageKey(user, key) {
-    return `75hard_${user}_${key}`;
+(function purgeLegacyData() {
+    Object.keys(localStorage)
+        .filter(k => k.startsWith('75hard_') && !k.startsWith(STORAGE_PREFIX))
+        .forEach(k => localStorage.removeItem(k));
+    sessionStorage.removeItem('75hard_session');
+})();
+
+function loadData(user) {
+    try {
+        const raw = localStorage.getItem(`${STORAGE_PREFIX}${user}`);
+        if (raw) return JSON.parse(raw);
+    } catch (e) { /* corrupted entry — start fresh */ }
+    return { startDate: null, days: {} };
 }
 
-function getUserData(user) {
-    const raw = localStorage.getItem(getStorageKey(user, 'data'));
-    return raw ? JSON.parse(raw) : null;
+function saveData(user, data) {
+    localStorage.setItem(`${STORAGE_PREFIX}${user}`, JSON.stringify(data));
 }
 
-function setUserData(user, data) {
-    localStorage.setItem(getStorageKey(user, 'data'), JSON.stringify(data));
-}
-
-function initUserData(user) {
-    let data = getUserData(user);
-    if (!data) {
-        data = {
-            startDate: null,
-            days: {}
-        };
-        setUserData(user, data);
-    }
-    return data;
+function emptyDay() {
+    return { diet: false, water: false, workout: false, book: false, pic: false };
 }
 
 // ============================================
-// DATE HELPERS
+// DATES & STATS
 // ============================================
-function dateToStr(date) {
-    const d = new Date(date);
+function dateToStr(d) {
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
     return `${d.getFullYear()}-${mm}-${dd}`;
@@ -54,367 +58,311 @@ function parseLocalDate(str) {
     return new Date(y, m - 1, d);
 }
 
-function getDayNumber(startDate) {
-    const start = parseLocalDate(startDate);
+function rawDayNumber(startDate) {
     const now = new Date();
     now.setHours(0, 0, 0, 0);
-    const diff = Math.round((now - start) / (1000 * 60 * 60 * 24));
-    return diff + 1;
+    return Math.round((now - parseLocalDate(startDate)) / 86400000) + 1;
+}
+
+function dateOfDay(startDate, dayNum) {
+    const d = parseLocalDate(startDate);
+    d.setDate(d.getDate() + dayNum - 1);
+    return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function doneCount(dayData) {
+    return dayData ? TASKS.filter(t => dayData[t]).length : 0;
+}
+
+function computeStats(data) {
+    const raw = rawDayNumber(data.startDate);
+    const current = Math.min(Math.max(raw, 1), TOTAL_DAYS);
+    const finishedPeriod = raw > TOTAL_DAYS;
+
+    let completed = 0;
+    let missed = 0;
+    for (let i = 1; i <= current; i++) {
+        const n = doneCount(data.days[`day_${i}`]);
+        if (n === TASKS.length) completed++;
+        else if (i < current || finishedPeriod) missed++;
+    }
+
+    let streak = 0;
+    let i = doneCount(data.days[`day_${current}`]) === TASKS.length ? current : current - 1;
+    while (i >= 1 && doneCount(data.days[`day_${i}`]) === TASKS.length) {
+        streak++;
+        i--;
+    }
+
+    return {
+        current,
+        completed,
+        missed,
+        streak,
+        finishedPeriod,
+        daysLeft: finishedPeriod ? 0 : TOTAL_DAYS - current + 1,
+        percent: Math.round((completed / TOTAL_DAYS) * 100)
+    };
 }
 
 // ============================================
-// LOGIN
+// SCREENS
 // ============================================
-const loginForm = document.getElementById('login-form');
-const loginError = document.getElementById('login-error');
-const loginScreen = document.getElementById('login-screen');
-const dashboardScreen = document.getElementById('dashboard-screen');
+function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
+    window.scrollTo(0, 0);
+}
 
-loginForm.addEventListener('submit', (e) => {
+function login(username) {
+    currentUser = username;
+    selectedDay = null;
+    localStorage.setItem(SESSION_KEY, username);
+    showScreen('dashboard-screen');
+    render();
+}
+
+function logout() {
+    currentUser = null;
+    selectedDay = null;
+    localStorage.removeItem(SESSION_KEY);
+    $('login-form').reset();
+    $('login-error').textContent = '';
+    showScreen('login-screen');
+}
+
+$('login-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    const username = document.getElementById('username').value.trim().toLowerCase();
-    const password = document.getElementById('password').value.trim();
+    const username = $('username').value.trim().toLowerCase();
+    const password = $('password').value.trim();
 
     if (USERS[username] && USERS[username].password === password) {
-        currentUser = username;
-        sessionStorage.setItem('75hard_session', currentUser);
-        loginError.textContent = '';
-        loginScreen.classList.remove('active');
-        dashboardScreen.classList.add('active');
-        initDashboard();
+        $('login-error').textContent = '';
+        login(username);
     } else {
-        loginError.textContent = 'Invalid username or password';
-        document.getElementById('password').value = '';
+        $('login-error').textContent = 'Invalid username or password';
+        $('password').value = '';
     }
 });
 
-document.getElementById('btn-logout').addEventListener('click', () => {
-    currentUser = null;
-    sessionStorage.removeItem('75hard_session');
-    dashboardScreen.classList.remove('active');
-    loginScreen.classList.add('active');
-    document.getElementById('username').value = '';
-    document.getElementById('password').value = '';
-});
+$('btn-logout').addEventListener('click', logout);
 
 // ============================================
-// DASHBOARD INIT
+// RENDER
 // ============================================
-function initDashboard() {
-    const data = initUserData(currentUser);
-    const user = USERS[currentUser];
+function render() {
+    if (!currentUser) return;
+    const data = loadData(currentUser);
+    $('greeting').textContent = `Welcome back, ${USERS[currentUser].displayName}`;
 
-    document.getElementById('greeting').textContent =
-        `Welcome back, ${user.displayName}`;
+    const started = Boolean(data.startDate);
+    $('start-date-section').hidden = started;
+    ['today-section', 'calendar-section', 'rules-section', 'partner-section', 'settings-section']
+        .forEach(id => { $(id).hidden = !started; });
 
-    if (data.startDate) {
-        showTracker(data);
+    if (!started) {
+        renderHero(null);
+        const input = $('start-date-input');
+        const today = dateToStr(new Date());
+        input.max = today;
+        if (!input.value || input.value > today) input.value = today;
+        return;
+    }
+
+    const stats = computeStats(data);
+    if (selectedDay === null || selectedDay > stats.current) selectedDay = stats.current;
+
+    renderHero(stats);
+    renderTasks(data, stats);
+    renderCalendar(data, stats);
+    renderPartner();
+    $('settings-start-date').textContent = parseLocalDate(data.startDate)
+        .toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+function renderHero(stats) {
+    $('stat-day').textContent = stats ? stats.current : 0;
+    $('stat-completed').textContent = stats ? stats.completed : 0;
+    $('stat-percent').textContent = `${stats ? stats.percent : 0}%`;
+    $('stat-remaining').textContent = stats ? stats.daysLeft : TOTAL_DAYS;
+    $('streak-badge').textContent = `🔥 ${stats ? stats.streak : 0}`;
+    $('progress-bar').style.width = `${stats ? stats.percent : 0}%`;
+
+    const banner = $('status-banner');
+    if (stats && stats.finishedPeriod) {
+        banner.hidden = false;
+        banner.className = `status-banner ${stats.completed === TOTAL_DAYS ? 'success' : 'warning'}`;
+        banner.textContent = stats.completed === TOTAL_DAYS
+            ? '🏆 75 HARD COMPLETE — all 75 days done. Legendary.'
+            : `The 75 days are over — ${stats.completed}/75 completed. Reset below to go again.`;
+    } else if (stats && stats.missed > 0) {
+        banner.hidden = false;
+        banner.className = 'status-banner warning';
+        banner.textContent = `${stats.missed} missed day${stats.missed > 1 ? 's' : ''}. Official rules say restart from Day 1 — use Reset Challenge below if you want to.`;
     } else {
-        showStartDatePicker();
+        banner.hidden = true;
     }
 }
 
-function showStartDatePicker() {
-    document.getElementById('start-date-section').style.display = 'block';
-    document.getElementById('today-section').style.display = 'none';
-    document.getElementById('calendar-section').style.display = 'none';
-    document.getElementById('rules-section').style.display = 'none';
-    document.getElementById('partner-section').style.display = 'none';
+function renderTasks(data, stats) {
+    const dayData = data.days[`day_${selectedDay}`] || emptyDay();
+    const isToday = selectedDay === stats.current && !stats.finishedPeriod;
 
-    const dateInput = document.getElementById('start-date-input');
-    dateInput.value = dateToStr(new Date());
+    $('today-heading').textContent = isToday ? "Today's Tasks" : 'Editing';
+    $('today-label').textContent = `Day ${selectedDay}`;
+    $('today-date').textContent = dateOfDay(data.startDate, selectedDay);
+    $('btn-back-today').hidden = selectedDay === stats.current;
 
-    document.getElementById('btn-set-date').onclick = () => {
-        const val = dateInput.value;
-        if (!val) return;
-        const data = getUserData(currentUser);
-        data.startDate = val;
-        setUserData(currentUser, data);
-        showTracker(data);
-    };
-
-    updateHeroStats(0, 0);
-}
-
-function showTracker(data) {
-    document.getElementById('start-date-section').style.display = 'none';
-    document.getElementById('today-section').style.display = 'block';
-    document.getElementById('calendar-section').style.display = 'block';
-    document.getElementById('rules-section').style.display = 'block';
-    document.getElementById('partner-section').style.display = 'block';
-
-    const dayNum = getDayNumber(data.startDate);
-    const clampedDay = Math.min(Math.max(dayNum, 1), 75);
-    const todayKey = `day_${clampedDay}`;
-
-    document.getElementById('today-label').textContent = `Day ${clampedDay}`;
-
-    if (!data.days[todayKey]) {
-        data.days[todayKey] = { diet: false, water: false, workout: false, book: false, pic: false };
-        setUserData(currentUser, data);
-    }
-
-    const checkboxes = document.querySelectorAll('.task-card input[type="checkbox"]');
-    checkboxes.forEach(cb => {
-        const task = cb.dataset.task;
-        cb.checked = data.days[todayKey][task] || false;
-        updateTaskCardState(cb);
-
-        cb.onchange = () => {
-            const d = getUserData(currentUser);
-            d.days[todayKey][task] = cb.checked;
-            setUserData(currentUser, d);
-            updateTaskCardState(cb);
-            refreshStats();
-        };
+    document.querySelectorAll('.task-card').forEach(card => {
+        const task = card.dataset.task;
+        const cb = card.querySelector('input');
+        cb.checked = Boolean(dayData[task]);
+        card.classList.toggle('done', cb.checked);
     });
 
-    const taskCards = document.querySelectorAll('.task-card');
-    taskCards.forEach(card => {
-        card.onclick = (e) => {
-            if (e.target.closest('.toggle')) return;
-            const cb = card.querySelector('input[type="checkbox"]');
-            cb.checked = !cb.checked;
-            cb.dispatchEvent(new Event('change'));
-        };
-    });
-
-    refreshStats();
-    renderCalendar();
-    renderPartnerProgress();
+    const n = doneCount(dayData);
+    $('day-progress-text').textContent = n === TASKS.length ? 'Day complete 💎' : `${n} / ${TASKS.length} done`;
+    $('day-progress').classList.toggle('complete', n === TASKS.length);
 }
 
-function updateTaskCardState(checkbox) {
-    const card = checkbox.closest('.task-card');
-    if (checkbox.checked) {
-        card.classList.add('done');
-    } else {
-        card.classList.remove('done');
-    }
-}
-
-// ============================================
-// STATS
-// ============================================
-function refreshStats() {
-    const data = getUserData(currentUser);
-    if (!data || !data.startDate) return;
-
-    const dayNum = getDayNumber(data.startDate);
-    const clampedDay = Math.min(Math.max(dayNum, 1), 75);
-
-    let completedDays = 0;
-    let streak = 0;
-    let streakBroken = false;
-
-    for (let i = clampedDay; i >= 1; i--) {
-        const key = `day_${i}`;
-        const dayData = data.days[key];
-        if (dayData && TASKS.every(t => dayData[t])) {
-            if (!streakBroken) streak++;
-            completedDays++;
-        } else {
-            if (i < clampedDay) streakBroken = true;
-            if (dayData && TASKS.some(t => dayData[t])) {
-                // partial — not completed
-            }
-        }
-    }
-
-    // Also count completed days that might not be consecutive
-    completedDays = 0;
-    for (let i = 1; i <= 75; i++) {
-        const key = `day_${i}`;
-        const dayData = data.days[key];
-        if (dayData && TASKS.every(t => dayData[t])) {
-            completedDays++;
-        }
-    }
-
-    const percent = Math.round((completedDays / 75) * 100);
-    const remaining = 75 - completedDays;
-
-    updateHeroStats(clampedDay, completedDays, percent, remaining);
-    document.getElementById('streak-badge').textContent = `🔥 ${streak}`;
-    document.getElementById('progress-bar').style.width = `${percent}%`;
-}
-
-function updateHeroStats(day, completed, percent = 0, remaining = 75) {
-    document.getElementById('stat-day').textContent = day;
-    document.getElementById('stat-completed').textContent = completed;
-    document.getElementById('stat-percent').textContent = `${percent}%`;
-    document.getElementById('stat-remaining').textContent = remaining;
-}
-
-// ============================================
-// CALENDAR
-// ============================================
-function renderCalendar() {
-    const data = getUserData(currentUser);
-    if (!data || !data.startDate) return;
-
-    const grid = document.getElementById('calendar-grid');
+function renderCalendar(data, stats) {
+    const grid = $('calendar-grid');
     grid.innerHTML = '';
+    const raw = rawDayNumber(data.startDate);
 
-    const dayNum = getDayNumber(data.startDate);
-
-    for (let i = 1; i <= 75; i++) {
-        const cell = document.createElement('div');
+    for (let i = 1; i <= TOTAL_DAYS; i++) {
+        const dayData = data.days[`day_${i}`];
+        const n = doneCount(dayData);
+        const cell = document.createElement('button');
+        cell.type = 'button';
         cell.className = 'cal-day';
         cell.textContent = i;
 
-        const key = `day_${i}`;
-        const dayData = data.days[key];
-
-        if (i > dayNum) {
+        if (i > stats.current) {
             cell.classList.add('future');
-        } else if (dayData) {
-            const doneCount = TASKS.filter(t => dayData[t]).length;
-            if (doneCount === 5) {
-                cell.classList.add('complete');
-            } else if (doneCount > 0) {
-                cell.classList.add('partial');
-            } else {
-                cell.classList.add('empty');
-            }
+            cell.disabled = true;
+        } else if (n === TASKS.length) {
+            cell.classList.add('complete');
+        } else if (i < raw) {
+            cell.classList.add(n > 0 ? 'partial' : 'missed');
         } else {
-            cell.classList.add('empty');
+            cell.classList.add(n > 0 ? 'partial' : 'empty');
         }
 
-        if (i === Math.min(Math.max(dayNum, 1), 75)) {
-            cell.classList.add('today');
-        }
+        if (i === stats.current && !stats.finishedPeriod) cell.classList.add('today');
+        if (i === selectedDay) cell.classList.add('selected');
 
-        // Tooltip
-        const tooltip = document.createElement('div');
+        const tooltip = document.createElement('span');
         tooltip.className = 'day-tooltip';
-        if (dayData) {
-            const items = TASKS.map(t => `${dayData[t] ? '✅' : '❌'} ${t.charAt(0).toUpperCase() + t.slice(1)}`);
-            tooltip.innerHTML = `<strong>Day ${i}</strong><br>${items.join('<br>')}`;
-        } else {
-            tooltip.innerHTML = `<strong>Day ${i}</strong><br>${i > dayNum ? 'Upcoming' : 'Not started'}`;
-        }
+        tooltip.innerHTML = i > stats.current
+            ? `<strong>Day ${i}</strong><br>Upcoming`
+            : `<strong>Day ${i}</strong><br>` +
+              TASKS.map(t => `${dayData && dayData[t] ? '✅' : '❌'} ${TASK_LABELS[t]}`).join('<br>');
         cell.appendChild(tooltip);
-
-        // Click to navigate to that day (only past/current days)
-        if (i <= dayNum && i >= 1 && i <= 75) {
-            cell.addEventListener('click', () => openDayEditor(i));
-        }
 
         grid.appendChild(cell);
     }
 }
 
-// ============================================
-// DAY EDITOR (click calendar day)
-// ============================================
-function openDayEditor(dayNum) {
-    const data = getUserData(currentUser);
-    const key = `day_${dayNum}`;
-
-    if (!data.days[key]) {
-        data.days[key] = { diet: false, water: false, workout: false, book: false, pic: false };
-        setUserData(currentUser, data);
-    }
-
-    const currentDay = Math.min(Math.max(getDayNumber(data.startDate), 1), 75);
-
-    document.getElementById('today-label').textContent = `Day ${dayNum}${dayNum === currentDay ? ' (Today)' : ''}`;
-
-    const checkboxes = document.querySelectorAll('.task-card input[type="checkbox"]');
-    checkboxes.forEach(cb => {
-        const task = cb.dataset.task;
-        cb.checked = data.days[key][task] || false;
-        updateTaskCardState(cb);
-
-        cb.onchange = () => {
-            const d = getUserData(currentUser);
-            if (!d.days[key]) {
-                d.days[key] = { diet: false, water: false, workout: false, book: false, pic: false };
-            }
-            d.days[key][task] = cb.checked;
-            setUserData(currentUser, d);
-            updateTaskCardState(cb);
-            refreshStats();
-            renderCalendar();
-        };
-    });
-
-    document.getElementById('today-section').scrollIntoView({ behavior: 'smooth' });
-}
-
-// ============================================
-// PARTNER PROGRESS
-// ============================================
-function renderPartnerProgress() {
+function renderPartner() {
     const partnerId = USERS[currentUser].partner;
-    const partnerData = getUserData(partnerId);
-    const container = document.getElementById('partner-stats');
-    const partnerName = USERS[partnerId].displayName;
+    const partner = USERS[partnerId];
+    const data = loadData(partnerId);
+    const container = $('partner-stats');
+    $('partner-title').textContent = `${partner.displayName}'s Progress`;
 
-    if (!partnerData || !partnerData.startDate) {
+    if (!data.startDate) {
         container.innerHTML = `
-            <div class="partner-stat glass" style="grid-column: span 4;">
-                <p style="color: var(--text-secondary); font-size: 14px;">
-                    ${partnerName} hasn't started the challenge yet.
-                </p>
-            </div>
-        `;
+            <div class="partner-stat glass partner-empty">
+                <p>${partner.displayName} hasn't started on this device yet.</p>
+            </div>`;
         return;
     }
 
-    const dayNum = getDayNumber(partnerData.startDate);
-    const clampedDay = Math.min(Math.max(dayNum, 1), 75);
-
-    let completedDays = 0;
-    for (let i = 1; i <= 75; i++) {
-        const key = `day_${i}`;
-        const dayData = partnerData.days[key];
-        if (dayData && TASKS.every(t => dayData[t])) {
-            completedDays++;
-        }
-    }
-
-    const percent = Math.round((completedDays / 75) * 100);
-    const remaining = 75 - completedDays;
-
-    // Today's tasks for partner
-    const todayKey = `day_${clampedDay}`;
-    const todayData = partnerData.days[todayKey];
-    let todayDone = 0;
-    if (todayData) {
-        todayDone = TASKS.filter(t => todayData[t]).length;
-    }
-
+    const stats = computeStats(data);
+    const today = doneCount(data.days[`day_${stats.current}`]);
     container.innerHTML = `
-        <div class="partner-stat glass">
-            <div class="stat-number">${clampedDay}</div>
-            <div class="stat-label">${partnerName}'s Day</div>
-        </div>
-        <div class="partner-stat glass">
-            <div class="stat-number">${completedDays}</div>
-            <div class="stat-label">Days Done</div>
-        </div>
-        <div class="partner-stat glass">
-            <div class="stat-number">${percent}%</div>
-            <div class="stat-label">Progress</div>
-        </div>
-        <div class="partner-stat glass">
-            <div class="stat-number">${todayDone}/5</div>
-            <div class="stat-label">Today's Tasks</div>
-        </div>
-    `;
+        <div class="partner-stat glass"><div class="stat-number">${stats.current}</div><div class="stat-label">Day</div></div>
+        <div class="partner-stat glass"><div class="stat-number">${stats.completed}</div><div class="stat-label">Days Done</div></div>
+        <div class="partner-stat glass"><div class="stat-number">🔥 ${stats.streak}</div><div class="stat-label">Streak</div></div>
+        <div class="partner-stat glass"><div class="stat-number">${today}/5</div><div class="stat-label">Today</div></div>`;
 }
 
 // ============================================
-// AUTO-LOGIN CHECK (session persistence)
+// INTERACTIONS
 // ============================================
-(function checkSession() {
-    const saved = sessionStorage.getItem('75hard_session');
-    if (saved && USERS[saved]) {
-        currentUser = saved;
-        loginScreen.classList.remove('active');
-        dashboardScreen.classList.add('active');
-        initDashboard();
+$('btn-set-date').addEventListener('click', () => {
+    const val = $('start-date-input').value;
+    if (!val) return;
+    const data = loadData(currentUser);
+    data.startDate = val;
+    saveData(currentUser, data);
+    selectedDay = null;
+    render();
+});
+
+document.querySelectorAll('.task-card').forEach(card => {
+    const cb = card.querySelector('input');
+
+    cb.addEventListener('change', () => {
+        const data = loadData(currentUser);
+        const key = `day_${selectedDay}`;
+        data.days[key] = data.days[key] || emptyDay();
+        data.days[key][card.dataset.task] = cb.checked;
+        saveData(currentUser, data);
+        if (navigator.vibrate && cb.checked) navigator.vibrate(15);
+        render();
+    });
+
+    card.addEventListener('click', (e) => {
+        if (e.target.closest('.toggle')) return;
+        cb.checked = !cb.checked;
+        cb.dispatchEvent(new Event('change'));
+    });
+});
+
+$('calendar-grid').addEventListener('click', (e) => {
+    const cell = e.target.closest('.cal-day');
+    if (!cell || cell.disabled) return;
+    selectedDay = Number(cell.firstChild.textContent);
+    render();
+    $('today-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+$('btn-back-today').addEventListener('click', () => {
+    selectedDay = null;
+    render();
+});
+
+// Reset
+const modal = $('reset-modal');
+$('btn-reset').addEventListener('click', () => { modal.hidden = false; });
+$('btn-reset-cancel').addEventListener('click', () => { modal.hidden = true; });
+modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
+$('btn-reset-confirm').addEventListener('click', () => {
+    localStorage.removeItem(`${STORAGE_PREFIX}${currentUser}`);
+    modal.hidden = true;
+    selectedDay = null;
+    $('start-date-input').value = '';
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+// Re-render when the phone/tab comes back so the day rolls over after midnight
+let lastSeenDate = dateToStr(new Date());
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !currentUser) return;
+    const today = dateToStr(new Date());
+    if (today !== lastSeenDate) {
+        lastSeenDate = today;
+        selectedDay = null;
     }
+    render();
+});
+
+// ============================================
+// RESTORE SESSION
+// ============================================
+(function restoreSession() {
+    const saved = localStorage.getItem(SESSION_KEY);
+    if (saved && USERS[saved]) login(saved);
 })();
