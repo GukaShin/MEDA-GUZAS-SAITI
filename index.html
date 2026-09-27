@@ -13,12 +13,18 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=4">
+    <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 
+    <!-- LOADING SCREEN -->
+    <div id="loading-screen" class="screen active">
+        <div class="brand-number">75</div>
+        <div class="spinner"></div>
+    </div>
+
     <!-- LOGIN SCREEN -->
-    <div id="login-screen" class="screen active">
+    <div id="login-screen" class="screen">
         <div class="login-container">
             <div class="login-brand">
                 <div class="brand-number">75</div>
@@ -56,6 +62,12 @@
         </header>
 
         <main class="dashboard-main">
+            <div id="dashboard-loading" class="dashboard-loading">
+                <div class="spinner"></div>
+                <p>Syncing your progress…</p>
+            </div>
+
+            <div id="dashboard-content" hidden>
             <section class="hero-stats">
                 <div class="stat-card glass">
                     <div class="stat-number" id="stat-day">0</div>
@@ -220,6 +232,7 @@
                     <button id="btn-reset" class="btn-danger" type="button">Reset Challenge</button>
                 </div>
             </section>
+            </div>
         </main>
 
         <footer class="footer">
@@ -239,6 +252,8 @@
         </div>
     </div>
 
-    <script src="app.js?v=4"></script>
+    <div id="toast" class="toast" role="status" hidden></div>
+
+    <script type="module" src="app.js?v=5"></script>
 </body>
 </html>

@@ -2,46 +2,85 @@
    75 HARD — Challenge Tracker App
    ============================================ */
 
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
+import {
+    getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
+} from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
+import {
+    initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+    doc, onSnapshot, setDoc, deleteDoc, serverTimestamp
+} from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
+
+const firebaseApp = initializeApp({
+    apiKey: 'AIzaSyB6LhdpiV_9JTjO0hxHnJvroXUtH5H5NFo',
+    authDomain: 'meda-guza.firebaseapp.com',
+    projectId: 'meda-guza',
+    storageBucket: 'meda-guza.firebasestorage.app',
+    messagingSenderId: '380147860953',
+    appId: '1:380147860953:web:eedae895c904281c8c85c8'
+});
+const auth = getAuth(firebaseApp);
+const db = initializeFirestore(firebaseApp, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+});
+
+const EMAIL_DOMAIN = 'meda-guza.app';
 const USERS = {
-    guka: { password: 'gukaguza', displayName: 'Guka', partner: 'guza' },
-    guza: { password: 'gukaguza', displayName: 'Guza', partner: 'guka' }
+    guka: { displayName: 'Guka', partner: 'guza' },
+    guza: { displayName: 'Guza', partner: 'guka' }
 };
 
 const TASKS = ['diet', 'water', 'workout', 'book', 'pic'];
 const TASK_LABELS = { diet: 'Diet', water: 'Water', workout: 'Workout', book: 'Reading', pic: 'Progress Pic' };
 const TOTAL_DAYS = 75;
-const STORAGE_PREFIX = '75hard_v2_';
-const SESSION_KEY = `${STORAGE_PREFIX}session`;
 
 let currentUser = null;
 let selectedDay = null;
+let store = {};
+let loaded = {};
+let unsubscribers = [];
 
 const $ = (id) => document.getElementById(id);
 
-// ============================================
-// STORAGE
-// ============================================
-(function purgeLegacyData() {
-    Object.keys(localStorage)
-        .filter(k => k.startsWith('75hard_') && !k.startsWith(STORAGE_PREFIX))
-        .forEach(k => localStorage.removeItem(k));
-    sessionStorage.removeItem('75hard_session');
-})();
+Object.keys(localStorage)
+    .filter(k => k.startsWith('75hard_'))
+    .forEach(k => localStorage.removeItem(k));
 
-function loadData(user) {
-    try {
-        const raw = localStorage.getItem(`${STORAGE_PREFIX}${user}`);
-        if (raw) return JSON.parse(raw);
-    } catch (e) { /* corrupted entry — start fresh */ }
-    return { startDate: null, days: {} };
-}
-
-function saveData(user, data) {
-    localStorage.setItem(`${STORAGE_PREFIX}${user}`, JSON.stringify(data));
+// ============================================
+// DATA
+// ============================================
+function getData(user) {
+    return store[user] || { startDate: null, days: {} };
 }
 
 function emptyDay() {
     return { diet: false, water: false, workout: false, book: false, pic: false };
+}
+
+async function saveData(data) {
+    store[currentUser] = data;
+    render();
+    try {
+        await setDoc(doc(db, 'progress', currentUser), {
+            startDate: data.startDate,
+            days: data.days,
+            updatedAt: serverTimestamp()
+        });
+    } catch (e) {
+        showToast('Could not save — check your connection');
+        console.error(e);
+    }
+}
+
+function subscribe(user) {
+    return onSnapshot(doc(db, 'progress', user), (snap) => {
+        store[user] = snap.exists() ? snap.data() : null;
+        loaded[user] = true;
+        render();
+    }, (err) => {
+        console.error(err);
+        showToast('Sync error — try signing in again');
+    });
 }
 
 // ============================================
@@ -106,58 +145,96 @@ function computeStats(data) {
 }
 
 // ============================================
-// SCREENS
+// AUTH & SCREENS
 // ============================================
 function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
     window.scrollTo(0, 0);
 }
 
-function login(username) {
-    currentUser = username;
+let toastTimer = null;
+function showToast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, 4000);
+}
+
+function usernameFromEmail(email) {
+    const name = (email || '').split('@')[0];
+    return USERS[name] ? name : null;
+}
+
+onAuthStateChanged(auth, (user) => {
+    unsubscribers.forEach(u => u());
+    unsubscribers = [];
+    store = {};
+    loaded = {};
     selectedDay = null;
-    localStorage.setItem(SESSION_KEY, username);
+
+    currentUser = user ? usernameFromEmail(user.email) : null;
+    if (!currentUser) {
+        $('login-form').reset();
+        showScreen('login-screen');
+        return;
+    }
+
     showScreen('dashboard-screen');
     render();
-}
+    unsubscribers = [subscribe(currentUser), subscribe(USERS[currentUser].partner)];
+});
 
-function logout() {
-    currentUser = null;
-    selectedDay = null;
-    localStorage.removeItem(SESSION_KEY);
-    $('login-form').reset();
-    $('login-error').textContent = '';
-    showScreen('login-screen');
-}
-
-$('login-form').addEventListener('submit', (e) => {
+$('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const username = $('username').value.trim().toLowerCase();
     const password = $('password').value.trim();
+    const btn = $('login-form').querySelector('.btn-login');
+    $('login-error').textContent = '';
 
-    if (USERS[username] && USERS[username].password === password) {
-        $('login-error').textContent = '';
-        login(username);
-    } else {
+    if (!USERS[username]) {
         $('login-error').textContent = 'Invalid username or password';
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Signing in…';
+    try {
+        await signInWithEmailAndPassword(auth, `${username}@${EMAIL_DOMAIN}`, password);
+    } catch (err) {
+        const messages = {
+            'auth/network-request-failed': 'No internet connection',
+            'auth/too-many-requests': 'Too many attempts — wait a minute and try again'
+        };
+        $('login-error').textContent = messages[err.code] || 'Invalid username or password';
         $('password').value = '';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
     }
 });
 
-$('btn-logout').addEventListener('click', logout);
+$('btn-logout').addEventListener('click', () => signOut(auth));
 
 // ============================================
 // RENDER
 // ============================================
 function render() {
     if (!currentUser) return;
-    const data = loadData(currentUser);
     $('greeting').textContent = `Welcome back, ${USERS[currentUser].displayName}`;
 
+    const ready = loaded[currentUser];
+    $('dashboard-loading').hidden = Boolean(ready);
+    $('dashboard-content').hidden = !ready;
+    if (!ready) return;
+
+    const data = getData(currentUser);
     const started = Boolean(data.startDate);
     $('start-date-section').hidden = started;
-    ['today-section', 'calendar-section', 'rules-section', 'partner-section', 'settings-section']
+    ['today-section', 'calendar-section', 'rules-section', 'settings-section']
         .forEach(id => { $(id).hidden = !started; });
+    $('partner-section').hidden = false;
+    renderPartner();
 
     if (!started) {
         renderHero(null);
@@ -174,7 +251,6 @@ function render() {
     renderHero(stats);
     renderTasks(data, stats);
     renderCalendar(data, stats);
-    renderPartner();
     $('settings-start-date').textContent = parseLocalDate(data.startDate)
         .toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 }
@@ -213,9 +289,8 @@ function renderTasks(data, stats) {
     $('btn-back-today').hidden = selectedDay === stats.current;
 
     document.querySelectorAll('.task-card').forEach(card => {
-        const task = card.dataset.task;
         const cb = card.querySelector('input');
-        cb.checked = Boolean(dayData[task]);
+        cb.checked = Boolean(dayData[card.dataset.task]);
         card.classList.toggle('done', cb.checked);
     });
 
@@ -235,6 +310,7 @@ function renderCalendar(data, stats) {
         const cell = document.createElement('button');
         cell.type = 'button';
         cell.className = 'cal-day';
+        cell.dataset.day = i;
         cell.textContent = i;
 
         if (i > stats.current) {
@@ -266,14 +342,19 @@ function renderCalendar(data, stats) {
 function renderPartner() {
     const partnerId = USERS[currentUser].partner;
     const partner = USERS[partnerId];
-    const data = loadData(partnerId);
     const container = $('partner-stats');
     $('partner-title').textContent = `${partner.displayName}'s Progress`;
 
+    if (!loaded[partnerId]) {
+        container.innerHTML = `<div class="partner-stat glass partner-empty"><p>Loading…</p></div>`;
+        return;
+    }
+
+    const data = getData(partnerId);
     if (!data.startDate) {
         container.innerHTML = `
             <div class="partner-stat glass partner-empty">
-                <p>${partner.displayName} hasn't started on this device yet.</p>
+                <p>${partner.displayName} hasn't started the challenge yet.</p>
             </div>`;
         return;
     }
@@ -293,24 +374,20 @@ function renderPartner() {
 $('btn-set-date').addEventListener('click', () => {
     const val = $('start-date-input').value;
     if (!val) return;
-    const data = loadData(currentUser);
-    data.startDate = val;
-    saveData(currentUser, data);
     selectedDay = null;
-    render();
+    saveData({ startDate: val, days: {} });
 });
 
 document.querySelectorAll('.task-card').forEach(card => {
     const cb = card.querySelector('input');
 
     cb.addEventListener('change', () => {
-        const data = loadData(currentUser);
+        const data = structuredClone(getData(currentUser));
         const key = `day_${selectedDay}`;
         data.days[key] = data.days[key] || emptyDay();
         data.days[key][card.dataset.task] = cb.checked;
-        saveData(currentUser, data);
         if (navigator.vibrate && cb.checked) navigator.vibrate(15);
-        render();
+        saveData(data);
     });
 
     card.addEventListener('click', (e) => {
@@ -323,7 +400,7 @@ document.querySelectorAll('.task-card').forEach(card => {
 $('calendar-grid').addEventListener('click', (e) => {
     const cell = e.target.closest('.cal-day');
     if (!cell || cell.disabled) return;
-    selectedDay = Number(cell.firstChild.textContent);
+    selectedDay = Number(cell.dataset.day);
     render();
     $('today-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
@@ -333,21 +410,25 @@ $('btn-back-today').addEventListener('click', () => {
     render();
 });
 
-// Reset
 const modal = $('reset-modal');
 $('btn-reset').addEventListener('click', () => { modal.hidden = false; });
 $('btn-reset-cancel').addEventListener('click', () => { modal.hidden = true; });
 modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
-$('btn-reset-confirm').addEventListener('click', () => {
-    localStorage.removeItem(`${STORAGE_PREFIX}${currentUser}`);
+$('btn-reset-confirm').addEventListener('click', async () => {
     modal.hidden = true;
     selectedDay = null;
     $('start-date-input').value = '';
+    store[currentUser] = null;
     render();
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    try {
+        await deleteDoc(doc(db, 'progress', currentUser));
+    } catch (e) {
+        showToast('Could not reset — check your connection');
+        console.error(e);
+    }
 });
 
-// Re-render when the phone/tab comes back so the day rolls over after midnight
 let lastSeenDate = dateToStr(new Date());
 document.addEventListener('visibilitychange', () => {
     if (document.hidden || !currentUser) return;
@@ -358,11 +439,3 @@ document.addEventListener('visibilitychange', () => {
     }
     render();
 });
-
-// ============================================
-// RESTORE SESSION
-// ============================================
-(function restoreSession() {
-    const saved = localStorage.getItem(SESSION_KEY);
-    if (saved && USERS[saved]) login(saved);
-})();

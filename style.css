@@ -852,6 +852,63 @@ button {
 }
 
 /* ============================================
+   LOADING / TOAST
+   ============================================ */
+#loading-screen.active {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
+.spinner {
+    width: 34px;
+    height: 34px;
+    border: 3px solid rgba(201, 168, 76, 0.15);
+    border-top-color: var(--gold);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.dashboard-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 96px 20px;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.btn-login:disabled {
+    opacity: 0.7;
+    cursor: wait;
+}
+
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(24px + var(--safe-bottom));
+    transform: translateX(-50%);
+    z-index: 300;
+    max-width: calc(100% - 32px);
+    padding: 12px 20px;
+    border-radius: var(--radius-sm);
+    background: rgba(40, 20, 20, 0.95);
+    border: 1px solid rgba(248, 113, 113, 0.4);
+    color: var(--danger);
+    font-size: 14px;
+    box-shadow: var(--shadow);
+}
+
+/* ============================================
    FOOTER
    ============================================ */
 .footer {
